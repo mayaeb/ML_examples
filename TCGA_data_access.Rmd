@@ -1,0 +1,64 @@
+---
+title: "TCGA_data_access"
+author: "Maya Emmons-Bell"
+date: "5/23/2022"
+output: html_document
+---
+
+Quick script to access, import, and pre-process data from TCGA for downstream analyses. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Import libraries
+```{r import-libraries}
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+library(GenomicDataCommons)
+```
+Load and configure data from TCGA
+```{r get-data}
+GDCprojects <- getGDCprojects()
+
+#accessing a nevi and melanoma project
+TCGAbiolinks:::getProjectSummary("TCGA-SKCM")
+
+query_TCGA <- GDCquery(
+  project = "TCGA-SKCM",
+  data.category = "Transcriptome Profiling",
+  data.type = "Gene Expression Quantification",
+  experimental.strategy = "RNA-Seq",
+  barcode = c("TCGA-*")) # parameter enforced by GDCquery
+
+
+GDCdownload(query = query_TCGA, method = "api", files.per.chunk = 100)
+tcga_data <- GDCprepare(query_TCGA, summarizedExperiment = TRUE)
+saveRDS(tcga_data,file = "TCGA_SKCM.rds")
+tcga_data <- readRDS("TCGA_SKCM.rds")
+
+#extract metadata and gene expression data for downstream analysis 
+metadata <- as.data.frame(colData(tcga_data))
+metadata <- metadata %>%
+    # add column with type of cancer
+    mutate(cancer_type = "Melanoma") %>%
+    # keep only metadata of interest
+    # barcode as unique identifier
+    select(barcode, shortLetterCode, definition, 
+           patient, sample_type, days_to_collection, ajcc_pathologic_stage, tissue_or_organ_of_origin, 
+           primary_diagnosis, age_at_index, year_of_diagnosis, gender, 
+           race, ethnicity, vital_status, days_to_death)
+
+rpkm <- as.data.frame(assays(tcga_data)[[1]])
+  # select only desired genes
+rpkm <- as.data.frame(t(rpkm)) %>%
+  # convert rownames to column
+    rownames_to_column("barcode")
+  
+#save files 
+write_csv(meta, "metadata.csv")
+write_csv(rpkm, "genes.csv")
+```
+
+
